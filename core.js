@@ -1,13 +1,13 @@
 /* core.js - Jewels-Ai: Master Engine (v11.6 - Fixed Mix & Match) */
 
 /* --- CONFIGURATION --- */
-const API_KEY = "AIzaSyAXG3iG2oQjUA_BpnO8dK8y-MHJ7HLrhyE"; 
+const API_KEY = "AIzaSyD4wvppmPbhzEXgH0Z65g0R6x8jjaNxYwg"; 
 
 const DRIVE_FOLDERS = {
-  earrings: "1eftKhpOHbCj8hzO11-KioFv03g0Yn61n",
-  chains: "1G136WEiA9QBSLtRk0LW1fRb3HDZb4VBD",
-  rings: "1iB1qgTE-Yl7w-CVsegecniD_DzklQk90",
-  bangles: "1d2b7I8XlhIEb8S_eXnRFBEaNYSwngnba"
+  earrings: "1ityzTkd_c8Q_DBQjC66WGA6Z5VCR5WkD",
+  chains: "1hvmKXN_BmYHyIDVcsmeQ-1mWWRVjAdQU",
+  rings: "14LmLiQAAYJOkJWMKT0m2BX2KbP2eAJv6",
+  bangles: "1gwBMAHnW9-gzqtwNLhwHXUhzf19Cl2Jq"
 };
 
 /* --- GLOBAL STATE --- */
