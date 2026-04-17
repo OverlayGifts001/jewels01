@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>JEWELS·AI — Virtual Try-On</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+  <style>
+    :root {
+      --gold:        #c9a84c;
+      --gold-light:  #e8d08a;
+      --gold-dark:   #8a6b22;
+      --obsidian:    #0a0a0a;
+      --glass:       rgba(201,168,76,0.08);
+      --glass-border:rgba(201,168,76,0.22);
+      --text-primary:#f5f0e8;
+      --text-muted:  rgba(245,240,232,0.45);
+      --radius:      14px;
+      --font-display:'Cormorant Garamond', serif;
+      --font-body:   'Montserrat', sans-serif;
+      --accent:      #c9a84c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { background: var(--obsidian); font-family: var(--font-body); color: var(--text-primary); overflow: hidden; height: 100dvh; }
+
+    body::before {
+      content: ''; position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 1; opacity: 0.55;
+    }
+
+    #video-container { position: fixed; inset: 0; background: #050505; z-index: 0; }
+    video, canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+    #remote-video { z-index: 1; }
+
+    #brand-header {
+      position: fixed; top: 0; left: 0; right: 0; padding: 18px 28px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.78) 0%, transparent 100%);
+      z-index: 10; animation: fadeDown 0.9s ease both;
+    }
+    @keyframes fadeDown { from { opacity:0; transform: translateY(-12px); } to { opacity:1; transform: translateY(0); } }
+
+    .brand-name { font-family: var(--font-display); font-size: 28px; font-weight: 300; letter-spacing: 0.22em; color: var(--gold-light); text-transform: uppercase; }
+    .brand-name span { font-style: italic; color: var(--gold); font-weight: 600; }
+    .brand-tagline { font-size: 9px; letter-spacing: 0.35em; color: var(--text-muted); text-transform: uppercase; margin-top: 2px; }
+    .header-badge { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); border: 1px solid var(--glass-border); background: var(--glass); padding: 6px 12px; border-radius: 20px; backdrop-filter: blur(12px); }
+
+    .gold-line { position: fixed; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--gold-dark), var(--gold), var(--gold-dark), transparent); z-index: 9; opacity: 0.55; }
+    .gold-line.top    { top: 70px; }
+    .gold-line.bottom { bottom: 170px; }
+
+    #dock {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
+      background: linear-gradient(to top, rgba(5,5,5,0.97), rgba(10,10,10,0.88));
+      border-top: 1px solid var(--glass-border);
+      display: flex; justify-content: space-around; align-items: center;
+      padding: 0 12px; z-index: 10; backdrop-filter: blur(24px);
+      animation: fadeUp 0.9s ease both;
+    }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform: translateY(0); } }
+
+    .cat { font-size: 10px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); padding: 10px 16px; border-radius: 30px; cursor: pointer; transition: all 0.35s ease; position: relative; }
+    .cat::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 0; height: 1px; background: var(--gold); transition: width 0.35s ease; }
+    .cat:hover { color: var(--gold-light); }
+    .cat.active { color: var(--gold); background: var(--glass); border: 1px solid var(--glass-border); }
+    .cat.active::after { width: 60%; }
+
+    #jewelry-options {
+      position: fixed; bottom: 80px; left: 0; right: 0; height: 90px;
+      display: flex; overflow-x: auto; gap: 10px; padding: 10px 16px;
+      z-index: 10; background: linear-gradient(to top, rgba(5,5,5,0.72), transparent);
+      scrollbar-width: none;
+    }
+    #jewelry-options::-webkit-scrollbar { display: none; }
+
+    .thumb-btn {
+      min-width: 70px !important; height: 70px !important; border-radius: 12px;
+      border: 1px solid rgba(201,168,76,0.2) !important; object-fit: contain;
+      background: rgba(255,255,255,0.04); cursor: pointer; transition: all 0.3s ease;
+      flex-shrink: 0; padding: 6px;
+    }
+    .thumb-btn:hover { border-color: rgba(201,168,76,0.6) !important; transform: translateY(-3px); box-shadow: 0 6px 20px rgba(201,168,76,0.2); }
+
+    #capture-trigger {
+      position: fixed; bottom: 186px; right: 24px; width: 64px; height: 64px; border-radius: 50%;
+      background: linear-gradient(145deg, var(--gold-light), var(--gold), var(--gold-dark));
+      border: none; cursor: pointer; z-index: 20;
+      box-shadow: 0 0 0 1px rgba(201,168,76,0.3), 0 8px 30px rgba(201,168,76,0.35), 0 2px 8px rgba(0,0,0,0.6);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      display: flex; align-items: center; justify-content: center;
+      animation: fadeUp 1s ease 0.2s both;
+    }
+    #capture-trigger:hover { transform: scale(1.07); box-shadow: 0 0 0 2px rgba(201,168,76,0.45), 0 12px 40px rgba(201,168,76,0.5), 0 2px 8px rgba(0,0,0,0.6); }
+    #capture-trigger:active { transform: scale(0.95); }
+    #capture-trigger svg { width: 26px; height: 26px; }
+
+    #flash-overlay { position: fixed; inset: 0; background: white; opacity: 0; pointer-events: none; z-index: 999; transition: opacity 0.12s ease; }
+    .flash-active { opacity: 1 !important; }
+
+    #loading-status {
+      position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 20;
+      font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--gold);
+      background: rgba(0,0,0,0.6); padding: 6px 16px; border-radius: 20px; border: 1px solid var(--glass-border);
+    }
+
+    #toast-notification {
+      visibility: hidden; min-width: 200px; background: rgba(10,10,10,0.92); color: var(--gold);
+      border: 1px solid var(--glass-border); text-align: center; border-radius: 30px;
+      padding: 10px 20px; position: fixed; z-index: 9999; left: 50%; bottom: 100px;
+      transform: translateX(-50%); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; backdrop-filter: blur(12px);
+    }
+    #toast-notification.show { visibility: visible; animation: fadeInOut 3s ease; }
+    @keyframes fadeInOut { 0%,100% { opacity:0; } 15%,85% { opacity:1; } }
+
+    /* Hidden stubs for core.js */
+    #voting-ui,#ai-bubble,#ai-avatar,#voice-btn,#stacking-btn,#tryall-btn,#coshop-btn { display: none !important; }
+    #daily-drop-modal { display: none; position: fixed; inset:0; z-index:500; background: rgba(0,0,0,0.9); flex-direction:column; align-items:center; justify-content:center; }
+    #daily-img { max-width: 200px; border-radius: 12px; }
+    #daily-name { color: var(--gold); margin: 12px 0; font-family: var(--font-display); font-size: 20px; }
+    #coshop-modal { display: none; position: fixed; inset:0; z-index:500; background: rgba(0,0,0,0.9); flex-direction:column; align-items:center; justify-content:center; }
+    #invite-link-box { color: var(--gold); padding: 12px; border: 1px solid var(--glass-border); border-radius: 8px; margin: 12px; word-break: break-all; }
+    #gallery-modal { display: none; position: fixed; inset:0; z-index:500; background: rgba(0,0,0,0.95); flex-direction:column; align-items:center; }
+    #gallery-grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 20px; overflow-y: auto; }
+    .gallery-card { width: 150px; cursor: pointer; border-radius: 8px; overflow: hidden; position: relative; }
+    .gallery-img { width: 100%; }
+    .gallery-overlay { position: absolute; inset:0; background: rgba(0,0,0,0.4); display:flex; flex-direction:column; align-items:center; justify-content:center; opacity:0; transition:0.3s; }
+    .gallery-card:hover .gallery-overlay { opacity:1; }
+    .overlay-text { color:#fff; font-size:10px; }
+    .overlay-icon { font-size:20px; }
+    #lightbox-overlay { display: none; position: fixed; inset:0; z-index:600; background: rgba(0,0,0,0.97); flex-direction:column; align-items:center; justify-content:center; }
+    #lightbox-image { max-width: 90vw; max-height: 80vh; }
+
+    /* Preview Modal */
+    #preview-modal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+      z-index: 1000; flex-direction: column; align-items: center; justify-content: center;
+      padding: 20px; backdrop-filter: blur(20px);
+    }
+    #preview-modal.visible { display: flex; animation: modalIn 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+    @keyframes modalIn { from { opacity:0; transform: scale(0.96); } to { opacity:1; transform: scale(1); } }
+
+    #close-btn {
+      position: absolute; top: 22px; right: 22px; width: 40px; height: 40px; border-radius: 50%;
+      background: var(--glass); border: 1px solid var(--glass-border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-primary); font-size: 18px; transition: background 0.2s;
+    }
+    #close-btn:hover { background: rgba(201,168,76,0.15); }
+
+    .modal-label { font-family: var(--font-display); font-size: 11px; letter-spacing: 0.35em; text-transform: uppercase; color: var(--gold); margin-bottom: 18px; }
+
+    .preview-frame {
+      position: relative; border: 1px solid var(--glass-border); border-radius: var(--radius);
+      overflow: hidden; box-shadow: 0 0 0 1px rgba(201,168,76,0.1), 0 30px 80px rgba(0,0,0,0.8); max-width: 100%;
+    }
+    .corner { position: absolute; width: 18px; height: 18px; border-color: var(--gold); border-style: solid; z-index: 3; }
+    .corner.tl { top:0; left:0; border-width:2px 0 0 2px; border-radius:2px 0 0 0; }
+    .corner.tr { top:0; right:0; border-width:2px 2px 0 0; border-radius:0 2px 0 0; }
+    .corner.bl { bottom:0; left:0; border-width:0 0 2px 2px; border-radius:0 0 0 2px; }
+    .corner.br { bottom:0; right:0; border-width:0 2px 2px 0; border-radius:0 0 2px 0; }
+
+    #preview-image { display: block; max-width: 90vw; max-height: 52vh; border-radius: var(--radius); }
+
+    .modal-divider { width: 100%; max-width: 380px; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-border), transparent); margin: 18px 0; }
+
+    #product-chip {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--glass); border: 1px solid var(--glass-border);
+      border-radius: 40px; padding: 8px 18px;
+    }
+    .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.5; transform:scale(0.8); } }
+    .chip-text { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); }
+    .chip-name { font-family: var(--font-display); font-size: 15px; font-style: italic; color: var(--gold-light); margin-left: 2px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .preview-actions { margin-top: 22px; width: 100%; max-width: 380px; }
+    #download-status { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); text-align: center; height: 18px; margin-bottom: 12px; opacity: 0; transition: opacity 0.3s; }
+    #download-status.show { opacity: 1; }
+    .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .btn-premium {
+      position: relative; overflow: hidden; padding: 16px 12px; border: none;
+      border-radius: var(--radius); font-family: var(--font-body); font-size: 10px;
+      font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    .btn-premium:hover  { transform: translateY(-2px); }
+    .btn-premium:active { transform: translateY(0) scale(0.97); }
+    .btn-premium .btn-icon { font-size: 18px; }
+    .btn-premium::after { content: ''; position: absolute; top: -50%; left: -60%; width: 60%; height: 200%; background: linear-gradient(105deg, transparent, rgba(255,255,255,0.22), transparent); transform: skewX(-20deg); transition: left 0.55s ease; }
+    .btn-premium:hover::after { left: 120%; }
+    .btn-dl { background: linear-gradient(135deg, var(--gold-light), var(--gold), var(--gold-dark)); color: #0a0a0a; box-shadow: 0 4px 20px rgba(201,168,76,0.3); }
+    .btn-wa { background: linear-gradient(135deg, #2ecc71, #25D366, #1a9e4e); color: #fff; box-shadow: 0 4px 20px rgba(37,211,102,0.25); }
+  </style>
+</head>
+<body>
+
+  <div id="flash-overlay"></div>
+  <div id="loading-status">Initialising AR…</div>
+  <div id="toast-notification"></div>
+
+  <!-- core.js stubs -->
+  <div id="voting-ui"  style="display:none"></div>
+  <div id="ai-bubble"  style="display:none"></div>
+  <div id="ai-avatar"  style="display:none"></div>
+  <button id="voice-btn"    style="display:none">🎙️</button>
+  <button id="stacking-btn" style="display:none"></button>
+  <button id="tryall-btn"   style="display:none">Try All</button>
+  <button id="coshop-btn"   style="display:none"></button>
+
+  <div id="daily-drop-modal">
+    <img id="daily-img" src="" alt="">
+    <div id="daily-name"></div>
+    <button onclick="tryDailyItem()" style="background:var(--gold);border:none;padding:10px 24px;border-radius:20px;cursor:pointer;font-weight:600;">Try It</button>
+    <button onclick="closeDailyDrop()" style="background:transparent;border:1px solid #555;color:#fff;padding:10px 24px;border-radius:20px;cursor:pointer;margin-top:8px;">Close</button>
+  </div>
+
+  <div id="coshop-modal">
+    <div id="invite-link-box"></div>
+    <button onclick="copyInviteLink()" style="background:var(--gold);border:none;padding:10px 24px;border-radius:20px;cursor:pointer;font-weight:600;">Copy Link</button>
+    <button onclick="closeCoShopModal()" style="background:transparent;border:1px solid #555;color:#fff;padding:10px 24px;border-radius:20px;cursor:pointer;margin-top:8px;">Close</button>
+  </div>
+
+  <div id="gallery-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:16px 20px;">
+      <span style="color:var(--gold);letter-spacing:0.2em;font-size:11px;text-transform:uppercase;">Gallery</span>
+      <span class="close-gallery" onclick="closeGallery()" style="cursor:pointer;font-size:24px;color:#fff;">✕</span>
+    </div>
+    <div id="gallery-grid"></div>
+  </div>
+
+  <div id="lightbox-overlay">
+    <span class="close-lightbox" onclick="closeLightbox()" style="position:absolute;top:20px;right:20px;font-size:30px;cursor:pointer;color:#fff;">✕</span>
+    <button onclick="changeLightboxImage(-1)" style="position:absolute;left:20px;background:none;border:none;color:#fff;font-size:30px;cursor:pointer;">‹</button>
+    <img id="lightbox-image" src="" alt="">
+    <button onclick="changeLightboxImage(1)"  style="position:absolute;right:20px;background:none;border:none;color:#fff;font-size:30px;cursor:pointer;">›</button>
+  </div>
+
+  <div id="video-container">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <video id="remote-video" autoplay playsinline></video>
+  </div>
+
+  <header id="brand-header">
+    <div>
+      <div class="brand-name">Jewels<span>·AI</span></div>
+      <div class="brand-tagline">Virtual Try-On Experience</div>
+    </div>
+    <div class="header-badge">Live</div>
+  </header>
+
+  <div class="gold-line top"></div>
+  <div class="gold-line bottom"></div>
+
+  <button id="capture-trigger" onclick="runCaptureProcess()" title="Capture Look">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+  </button>
+
+  <div id="jewelry-options"></div>
+
+  <nav id="dock">
+    <div class="cat active" onclick="handleCatClick('earrings', this)">Earrings</div>
+    <div class="cat"        onclick="handleCatClick('chains',   this)">Chains</div>
+    <div class="cat"        onclick="handleCatClick('rings',    this)">Rings</div>
+    <div class="cat"        onclick="handleCatClick('bangles',  this)">Bangles</div>
+  </nav>
+
+  <div id="preview-modal">
+    <div id="close-btn" onclick="closePreview()">✕</div>
+    <div class="modal-label">Your Look</div>
+    <div class="preview-frame">
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+      <img id="preview-image" src="" alt="Captured look">
+    </div>
+    <div class="modal-divider"></div>
+    <div id="product-chip">
+      <div class="chip-dot"></div>
+      <span class="chip-text">Product</span>
+      <span class="chip-name" id="chip-name-display">—</span>
+    </div>
+    <div class="preview-actions">
+      <div id="download-status"></div>
+      <div class="action-row">
+        <button class="btn-premium btn-dl" id="dl-btn" onclick="executeDownload()">
+          <span class="btn-icon">↓</span>Download
+        </button>
+        <button class="btn-premium btn-wa" id="wa-btn" onclick="shareToWA()">
+          <span class="btn-icon">↗</span>WhatsApp
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="core.js"></script>
+
+  <script>
+    /* ── Get real Drive filename from core.js ── */
+    function getDriveFileName() {
+      const raw = (typeof currentAssetName !== 'undefined' && currentAssetName && currentAssetName !== 'Select a Design')
+        ? currentAssetName : 'No product selected';
+      return raw.replace(/\.(png|jpg|jpeg|webp|gif)$/i, '').trim();
+    }
+
+    /* ── Category click ── */
+    function handleCatClick(type, el) {
+      document.querySelectorAll('.cat').forEach(c => c.classList.remove('active'));
+      el.classList.add('active');
+      if (typeof selectJewelryType === 'function') selectJewelryType(type);
+    }
+
+    /* ══════════════════════════════════════════════════════
+       TEXT WRAP HELPER
+       Splits text into lines that fit within maxWidth pixels.
+       Uses ctx.measureText so it's pixel-accurate.
+    ══════════════════════════════════════════════════════ */
+    function wrapText(ctx, text, maxWidth) {
+      const words = text.split(' ');
+      const lines = [];
+      let current = '';
+      for (const word of words) {
+        const test = current ? current + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      }
+      if (current) lines.push(current);
+      return lines;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       CAPTURE
+    ══════════════════════════════════════════════════════ */
+    function runCaptureProcess() {
+      const flash = document.getElementById('flash-overlay');
+      flash.style.opacity = '1';
+      setTimeout(() => flash.style.opacity = '0', 180);
+
+      const video   = document.getElementById('webcam');
+      const overlay = document.getElementById('overlay');
+      const productName = getDriveFileName();
+
+      // Update modal chip
+      document.getElementById('chip-name-display').textContent = productName;
+
+      const c   = document.createElement('canvas');
+      const ctx = c.getContext('2d');
+      c.width  = video.videoWidth  || 1280;
+      c.height = video.videoHeight || 720;
+
+      // 1. Mirrored camera frame
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, -c.width, 0, c.width, c.height);
+      ctx.restore();
+
+      // 2. AR overlay
+      ctx.drawImage(overlay, 0, 0, c.width, c.height);
+
+      // ── TYPOGRAPHY SCALE (proportional to canvas width) ──
+      const px          = Math.round(c.width * 0.028);   // left margin
+      const maxTextW    = c.width - px * 2;               // available text width
+      const brandSize   = Math.round(c.width * 0.016);    // "JEWELS·AI" label
+      const labelSize   = Math.round(c.width * 0.011);    // "PRODUCT" micro label
+      const descSize    = Math.round(c.width * 0.024);    // description lines
+      const lineH       = descSize * 1.6;                 // line height
+      const topPad      = Math.round(c.width * 0.022);    // padding inside bar
+      const botPad      = Math.round(c.width * 0.018);
+
+      // ── MEASURE description lines FIRST so bar height is correct ──
+      ctx.font = `400 ${descSize}px "Cormorant Garamond", serif`;
+      const descLines = wrapText(ctx, productName, maxTextW);
+
+      // barH = topPad + brand row + gap + label row + all desc lines + botPad
+      const brandRowH = brandSize * 1.5;
+      const labelRowH = labelSize * 1.4;
+      const descBlockH = descLines.length * lineH;
+      const barH = topPad + brandRowH + labelRowH + descBlockH + botPad;
+
+      // 3. Gradient bar — auto-height
+      const grd = ctx.createLinearGradient(0, c.height - barH, 0, c.height);
+      grd.addColorStop(0,    'rgba(0,0,0,0)');
+      grd.addColorStop(0.10, 'rgba(0,0,0,0.88)');
+      grd.addColorStop(1,    'rgba(0,0,0,0.97)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, c.height - barH, c.width, barH);
+
+      // Top gold accent line
+      ctx.strokeStyle = 'rgba(201,168,76,0.7)';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0,       c.height - barH + 1);
+      ctx.lineTo(c.width, c.height - barH + 1);
+      ctx.stroke();
+
+      // ── BRAND wordmark ──
+      const y0 = c.height - barH + topPad;
+      ctx.font      = `italic 300 ${brandSize}px "Cormorant Garamond", serif`;
+      ctx.fillStyle = 'rgba(201,168,76,0.85)';
+      ctx.fillText('JEWELS·AI', px, y0 + brandSize);
+
+      // ── "PRODUCT" micro label ──
+      const y1 = y0 + brandRowH;
+      ctx.font      = `500 ${labelSize}px "Montserrat", sans-serif`;
+      ctx.fillStyle = 'rgba(201,168,76,0.55)';
+      ctx.fillText('PRODUCT', px, y1 + labelSize);
+
+      // ── DESCRIPTION — line by line ──
+      ctx.font      = `400 ${descSize}px "Cormorant Garamond", serif`;
+      ctx.fillStyle = 'rgba(245,240,232,0.92)';
+      const y2 = y1 + labelRowH;
+      descLines.forEach((line, i) => {
+        ctx.fillText(line, px, y2 + i * lineH);
+      });
+
+      // Bottom thin gold rule
+      ctx.strokeStyle = 'rgba(201,168,76,0.3)';
+      ctx.lineWidth   = 1;
+      const ruleY = c.height - botPad;
+      ctx.beginPath();
+      ctx.moveTo(px,             ruleY);
+      ctx.lineTo(c.width - px,   ruleY);
+      ctx.stroke();
+
+      // Corner bracket accents (bottom-left & bottom-right)
+      ctx.strokeStyle = 'rgba(201,168,76,0.55)';
+      ctx.lineWidth   = 1.5;
+      const bY = c.height - Math.round(c.width * 0.012);
+      const bX2 = c.width - px;
+      const arm = Math.round(c.width * 0.012);
+      // bottom-left
+      ctx.beginPath();
+      ctx.moveTo(px, bY); ctx.lineTo(px, bY - arm);
+      ctx.moveTo(px, bY); ctx.lineTo(px + arm, bY);
+      ctx.stroke();
+      // bottom-right
+      ctx.beginPath();
+      ctx.moveTo(bX2, bY); ctx.lineTo(bX2, bY - arm);
+      ctx.moveTo(bX2, bY); ctx.lineTo(bX2 - arm, bY);
+      ctx.stroke();
+
+      // Show modal
+      document.getElementById('preview-image').src = c.toDataURL('image/png');
+      const modal = document.getElementById('preview-modal');
+      modal.style.display = 'flex';
+      modal.classList.add('visible');
+      document.getElementById('download-status').classList.remove('show');
+      document.getElementById('download-status').innerText = '';
+    }
+
+    /* ── Download ── */
+    function executeDownload() {
+      const status = document.getElementById('download-status');
+      const btn    = document.getElementById('dl-btn');
+      status.innerText = 'Preparing download…';
+      status.classList.add('show');
+      btn.disabled = true;
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href     = document.getElementById('preview-image').src;
+        link.download = 'jewels-ai-look.png';
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        status.innerText = 'Download complete ✓';
+        btn.disabled = false;
+      }, 800);
+    }
+
+    /* ── WhatsApp ── */
+    async function shareToWA() {
+      const dataURL = document.getElementById('preview-image').src;
+      const name    = getDriveFileName();
+      const blob    = await (await fetch(dataURL)).blob();
+      const file    = new File([blob], 'jewels-look.png', { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'Jewels AI Look', text: `Hi! Interested in: ${name} from Jewels AI ✨` });
+          return;
+        } catch(e) {}
+      }
+      const text = encodeURIComponent(`Hi! I'm interested in: ${name} from Jewels AI ✨`);
+      window.open(`https://api.whatsapp.com/send?phone=917019743880&text=${text}`, '_blank');
+    }
+
+    /* ── Close modal ── */
+    function closePreview() {
+      const modal = document.getElementById('preview-modal');
+      modal.style.display = 'none';
+      modal.classList.remove('visible');
+      document.getElementById('download-status').classList.remove('show');
+    }
+     document.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.addEventListener("keydown", (e) => {
+      if (
+        e.key === "F12" ||
+        (e.ctrlKey && e.shiftKey && e.key === "I") ||
+        (e.ctrlKey && e.shiftKey && e.key === "J") ||
+        (e.ctrlKey && e.key === "u") ||
+        (e.ctrlKey && e.shiftKey && e.key === "C")
+      ) {
+        e.preventDefault();
+        alert("🚫 Action Disabled!");
+      }
+    });
+  </script>
+</body>
+</html>
